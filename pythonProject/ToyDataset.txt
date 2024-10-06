@@ -1,0 +1,78 @@
+1. We need a registration system where users can sign up using their email address or social media accounts (Google and Facebook). The system should verify their email and allow password reset functionality.
+
+Keywords: registration, users, sign up, email, social media, Google, Facebook, verify, password reset
+
+2. The platform should include a shopping cart that allows users to add and remove items. It should calculate the total cost, including taxes and shipping, before proceeding to the payment page.
+
+Keywords: shopping cart, users, add items, remove items, total cost, taxes, shipping, payment
+
+3. The system should allow administrators to add, update, and delete employee information, including their personal details, job title, department, and salary. It must provide role-based access control.
+
+Keywords: administrators, employee, information, personal details, job title, department, salary, role-based access control
+
+4. We need a dashboard where users can create tasks, assign them to team members, set deadlines, and mark them as completed. There should also be an option to track the progress of each task.
+
+Keywords: dashboard, tasks, users, create, assign, deadlines, completed, track progress
+
+5. The website must support English and French, with the option to add more languages in the future. Users should be able to switch languages easily from any page.
+
+Keywords: website, support, English, French, languages, switch, page
+
+6. The app should have a messaging feature that supports real-time chat between users. It should notify users when a new message arrives and display read receipts.
+
+Keywords: messaging, real-time, chat, users, notify, new message, read receipts
+
+7. The application should automatically generate invoices based on user transactions. Each invoice must include the customer’s name, purchase details, and payment status.
+
+Keywords: generate, invoices, transactions, customer, name, purchase details, payment status
+
+8. We need a data backup system that runs daily and allows administrators to restore the data in case of failure. The system should store backups for the last 30 days.
+
+Keywords: data, backup, system, daily, administrators, restore, failure, store, 30 days
+
+9. Create an analytics dashboard that displays key performance indicators such as user activity, sales, and engagement rates. It should provide visual charts and allow filtering by date range.
+
+Keywords: analytics, dashboard, performance indicators, user activity, sales, engagement, charts, filter, date range
+
+10. We need a search bar that allows users to search for products by name, category, or tags. The search results should appear instantly, with filters for price and rating.
+
+Keywords: search bar, users, search, products, name, category, tags, filters, price, rating
+
+11. The system should have a secure login process that includes two-factor authentication (2FA). Users should receive a code via SMS or email to confirm their identity.
+
+Keywords: login, secure, two-factor authentication, 2FA, code, SMS, email, identity
+
+12. Implement a notifications system where users receive alerts for new messages, updates, or important reminders. The notifications should be customizable by the user and appear in real-time.
+
+Keywords: notifications, users, alerts, messages, updates, reminders, customizable, real-time
+
+13. We need a CMS where content creators can upload, edit, and delete posts, images, and videos. It should support scheduling posts for future publication.
+
+Keywords: CMS, content creators, upload, edit, delete, posts, images, videos, schedule
+
+14. The application needs to integrate with external APIs such as Google Maps for location services and PayPal for payment processing. We should be able to add new APIs easily in the future.
+
+Keywords: integrate, external APIs, Google Maps, location, PayPal, payment, add APIs
+
+15. We want a feature where users can upload documents (PDF, Word) and images. The files should be stored securely, and there should be a maximum file size limit of 20MB.
+Keywords: upload, documents, PDF, Word, images, stored, securely, file size, 20MB
+
+16. Ensure that the website is fully responsive and works well on mobile devices, tablets, and desktops. The layout should adjust automatically to different screen sizes.
+
+Keywords: website, responsive, mobile devices, tablets, desktops, layout, screen sizes
+
+17. We need a system for users to subscribe to different plans (free, basic, premium). Each plan will have different features and limits, and the subscription should auto-renew monthly.
+
+Keywords: system, users, subscribe, plans, free, basic, premium, features, limits, auto-renew, monthly
+
+18. The system should integrate with an email marketing tool, such as Mailchimp. Users should be able to subscribe to newsletters and receive promotional emails.
+
+Keywords: system, integrate, email marketing, Mailchimp, users, subscribe, newsletters, promotional emails
+
+19. Create a reporting feature where users can submit bug reports. Each report should include details like device type, operating system, and a description of the issue.
+
+Keywords: reporting, users, submit, bug reports, details, device type, operating system, description, issue
+
+20. We want a chatbot that can handle frequently asked questions and guide users through common problems. It should offer live chat escalation to a human agent if necessary.
+
+Keywords: chatbot, frequently asked questions, guide, users, problems, live chat, escalation, human agent
