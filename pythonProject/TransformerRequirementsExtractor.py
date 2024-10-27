@@ -2,32 +2,25 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-from transformers import BertTokenizer, BertModel
+from transformers import BertTokenizer
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
 
-# Device configuration
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
-# Load Dataset
 # file_path = '/kaggle/input/longtaskdescription-en/long_task_descriptions_en.csv'
 file_path = 'long_task_descriptions_en.csv'
 data = pd.read_csv(file_path)
-
-# Use "fulltext" as input and "essence" as the target summary
 data = [(row['fulltext'], row['essence']) for _, row in data.iterrows()]
 
-# Train-test split
 train_data, test_data = train_test_split(data, test_size=0.2, random_state=42)
 
-# Initialize a pre-trained tokenizer
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+vocab_size = tokenizer.vocab_size  # Use tokenizer's vocabulary size for embedding layer
 
 
-# Custom Dataset with Pre-trained Tokenizer
 class RequirementsDataset(Dataset):
     def __init__(self, data, tokenizer, max_length=128):
         self.data = data
@@ -51,16 +44,15 @@ class RequirementsDataset(Dataset):
         }
 
 
-# Custom Transformer Model
 class TransformerRequirementsExtractor(nn.Module):
-    def __init__(self, embed_size, num_heads, num_encoder_layers, num_decoder_layers, dim_feedforward, dropout=0.1):
+    def __init__(self, vocab_size, embed_size, num_heads, num_encoder_layers, num_decoder_layers, dim_feedforward,
+                 dropout=0.1):
         super(TransformerRequirementsExtractor, self).__init__()
 
-        # Use BERT model as an embedding layer
-        self.bert = BertModel.from_pretrained('bert-base-uncased')
+        self.embedding = nn.Embedding(vocab_size, embed_size)
+        self.position_embedding = nn.Embedding(512, embed_size)  # Position embeddings for sequence length up to 512
         self.embedding_dim = embed_size
 
-        # Encoder and Decoder Layers with batch_first=True
         self.encoder_layer = nn.TransformerEncoderLayer(d_model=self.embedding_dim, nhead=num_heads,
                                                         dim_feedforward=dim_feedforward, dropout=dropout,
                                                         batch_first=True)
@@ -71,23 +63,22 @@ class TransformerRequirementsExtractor(nn.Module):
         self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=num_encoder_layers)
         self.decoder = nn.TransformerDecoder(self.decoder_layer, num_layers=num_decoder_layers)
 
-        # Final linear layer to project back to vocabulary size
-        self.fc_out = nn.Linear(self.embedding_dim, self.bert.config.vocab_size)
+        self.fc_out = nn.Linear(self.embedding_dim, vocab_size)
 
     def forward(self, src, trg, src_mask=None, trg_mask=None):
-        # Use BERT embeddings for the encoder
-        src_emb = self.bert(src, attention_mask=src_mask).last_hidden_state
-        trg_emb = self.bert(trg, attention_mask=trg_mask).last_hidden_state
+        src_positions = torch.arange(0, src.size(1), device=src.device).unsqueeze(0).expand(src.size(0), -1)
+        trg_positions = torch.arange(0, trg.size(1), device=trg.device).unsqueeze(0).expand(trg.size(0), -1)
 
-        # Encoding and Decoding with key padding masks for src and trg
+        src_emb = self.embedding(src) + self.position_embedding(src_positions)
+        trg_emb = self.embedding(trg) + self.position_embedding(trg_positions)
+
         memory = self.encoder(src_emb, src_key_padding_mask=src_mask)
         output = self.decoder(trg_emb, memory, tgt_key_padding_mask=trg_mask)
 
         return self.fc_out(output)
 
 
-# Training and evaluation functions
-def train(model, dataloader, criterion, optimizer, epochs=1):
+def train(model, dataloader, criterion, optimizer, epochs=3):
     model.train()
     for epoch in range(epochs):
         total_loss = 0
@@ -96,9 +87,8 @@ def train(model, dataloader, criterion, optimizer, epochs=1):
                 src, trg = batch["input_ids"].to(device), batch["labels"].to(device)
                 src_mask, trg_mask = batch["attention_mask"].to(device), batch["attention_mask"].to(device)
 
-                # Adjust target input and mask for teacher forcing
                 trg_input = trg[:, :-1]
-                trg_mask = trg_mask[:, :-1]  # Adjust mask to match trg_input
+                trg_mask = trg_mask[:, :-1]
                 trg_target = trg[:, 1:]
 
                 src_mask = src_mask.bool()
@@ -116,80 +106,56 @@ def train(model, dataloader, criterion, optimizer, epochs=1):
                 total_loss += loss.item()
                 avg_loss = total_loss / (pbar.n + 1)
                 pbar.set_postfix({"Loss": avg_loss})
-            print(f"Epoch {epoch + 1}, Loss: {total_loss / len(dataloader)}")
+        print(f"Epoch {epoch + 1}, Loss: {total_loss / len(dataloader)}")
 
-
-# def predict(model, tokenizer, text, max_length=50):
-#     model.eval()
-#     src = tokenizer(text, return_tensors="pt", padding="max_length", truncation=True, max_length=128)["input_ids"].to(
-#         device)
-#     src_mask = tokenizer(text, return_tensors="pt", padding="max_length", truncation=True, max_length=128)[
-#         "attention_mask"].to(device).bool()
-
-#     trg = torch.tensor([tokenizer.encode('<sos>')], dtype=torch.long).to(device)
-
-#     for _ in range(max_length):
-#         output = model(src, trg, src_mask=src_mask)
-#         pred_token = output.argmax(dim=-1)[:, -1]
-#         trg = torch.cat([trg, pred_token.unsqueeze(0)], dim=1)
-#         if pred_token.item() == tokenizer.eos_token_id:
-#             break
-
-#     return tokenizer.decode(trg.squeeze(0).tolist())
 
 def predict(model, tokenizer, text, max_length=50, num_beams=4):
     model.eval()
-
-    # Encode the input text
     src = tokenizer(text, return_tensors="pt", padding="max_length", truncation=True, max_length=128)["input_ids"].to(
         device)
     src_mask = tokenizer(text, return_tensors="pt", padding="max_length", truncation=True, max_length=128)[
         "attention_mask"].to(device).bool()
 
-    # Initial target sequence with <sos> token
     trg = torch.tensor([[tokenizer.cls_token_id]], dtype=torch.long).to(device)
+    beam_candidates = [(trg, 0)]
 
     for _ in range(max_length):
-        output = model(src, trg, src_mask=src_mask)
-        next_token_logits = output[:, -1, :]
+        new_candidates = []
+        for candidate, score in beam_candidates:
+            output = model(src, candidate, src_mask=src_mask)
+            next_token_logits = output[:, -1, :].softmax(dim=-1)
+            topk_tokens = next_token_logits.topk(num_beams)
 
-        # Get the next token using beam search
-        next_token = next_token_logits.softmax(dim=-1).topk(num_beams).indices[:,
-                     0]  # Pick top token if greedy decoding
+            for k in range(num_beams):
+                next_token = topk_tokens.indices[0, k].unsqueeze(0).unsqueeze(0)
+                new_candidate = torch.cat([candidate, next_token], dim=1)
+                new_score = score + topk_tokens.values[0, k].item()
 
-        # Append the token to the sequence
-        trg = torch.cat([trg, next_token.unsqueeze(0)], dim=1)
+                if next_token.item() == tokenizer.sep_token_id:
+                    return tokenizer.decode(new_candidate.squeeze(0).tolist(), skip_special_tokens=True)
 
-        # Stop generation on <eos> token or [SEP]
-        if next_token.item() in [tokenizer.sep_token_id, tokenizer.eos_token_id]:
-            break
+                new_candidates.append((new_candidate, new_score))
 
-    # Decode the generated tokens to text, skipping special tokens
-    return tokenizer.decode(trg.squeeze(0).tolist(), skip_special_tokens=True)
+        beam_candidates = sorted(new_candidates, key=lambda x: x[1], reverse=True)[:num_beams]
+
+    best_sequence = beam_candidates[0][0]
+    return tokenizer.decode(best_sequence.squeeze(0).tolist(), skip_special_tokens=True)
 
 
-# Instantiate and use dataset and model as before
-if __name__ == '__main__':
-    # Create datasets with pre-trained tokenizer
-    train_dataset = RequirementsDataset(train_data, tokenizer)
-    train_dataloader = DataLoader(train_dataset, batch_size=8, shuffle=True)
+embed_size = 512
+num_heads = 8
+num_encoder_layers = 4
+num_decoder_layers = 4
+dim_feedforward = 1024
 
-    # Model parameters
-    embed_size = 768  # BERT embedding size
-    num_heads = 8
-    num_encoder_layers = 4
-    num_decoder_layers = 4
-    dim_feedforward = 512
+model = TransformerRequirementsExtractor(vocab_size, embed_size, num_heads, num_encoder_layers, num_decoder_layers,
+                                         dim_feedforward).to(device)
+criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
+optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
-    # Initialize model, criterion, and optimizer
-    model = TransformerRequirementsExtractor(embed_size, num_heads, num_encoder_layers, num_decoder_layers,
-                                             dim_feedforward).to(device)
-    criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
-    optimizer = optim.Adam(model.parameters(), lr=0.0001)
+train_dataset = RequirementsDataset(train_data, tokenizer)
+train_dataloader = DataLoader(train_dataset, batch_size=8, shuffle=True)
+train(model, train_dataloader, criterion, optimizer)
 
-    # Train model
-    train(model, train_dataloader, criterion, optimizer)
-
-    # Predict on a sample
-    sample_text = "To ensure effective operation within our team, we need a system that handles task assignments, tracks deadlines, and generates regular progress reports."
-    print("Predicted Summary:", predict(model, tokenizer, sample_text))
+sample_text = "To ensure effective operation within our team, we need a system that handles task assignments, tracks deadlines, and generates regular progress reports."
+print("Predicted Summary:", predict(model, tokenizer, sample_text))
