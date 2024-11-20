@@ -11,9 +11,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
 # file_path = '/kaggle/input/longtaskdescription-en/long_task_descriptions_en.csv'
-file_path = 'long_task_descriptions_en.csv'
+file_path = 'jobs_data.csv'
 data = pd.read_csv(file_path)
-data = [(row['fulltext'], row['essence']) for _, row in data.iterrows()]
+data = [(row['job_description'], row['keywords']) for _, row in data.iterrows()]
 
 train_data, test_data = train_test_split(data, test_size=0.2, random_state=42)
 
