@@ -124,10 +124,10 @@ class RequirementExtractorNN:
 
         self.save_model()
 
-    def save_model(self, path="./best_model.pt"):
+    def save_model(self, path="best_model.pt"):
         torch.save(self.model.state_dict(), path)
 
-    def load_model(self, path="./best_model.pt"):
+    def load_model(self, path="best_model.pt"):
         self.model.load_state_dict(torch.load(path, weights_only=True))
         self.model.eval()
 

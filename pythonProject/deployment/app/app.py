@@ -1,27 +1,46 @@
 import streamlit as st
 import requests
 
-# Title of the web app
-st.title("Requirements Extractor")
-# Subtitle
-st.write("Insert here any unclear requirements that the customer sent you and we will try to decipher for you what he meant.")
+FASTAPI_URL = "http://127.0.0.1:8000/predict/"
 
-requirements = st.text_input("Enter text to translate:", placeholder="Type your text here...")
+def main():
+    st.title("Software Requirements Extractor")
+    st.write("Use this app to extract technical requirements from job descriptions or related texts.")
 
-if st.button("Translate"):
-    if requirements.strip() == "":
-        st.warning("Please enter some text to translate.")
-    else:
-        # Show a spinner while "processing"
-        with st.spinner("Processing..."):
-            # Simulating backend interaction (replace this with your backend logic)
-            response = requests.post("http://fastapi-backend:8000/predict_answer/", requirements)
+    if "user_input" not in st.session_state:
+        st.session_state.user_input = ""
+    if "prediction" not in st.session_state:
+        st.session_state.prediction = ""
+
+    st.session_state.user_input = st.text_area(
+        "Enter the text to analyze:",
+        height=200,
+        value=st.session_state.user_input,
+        placeholder="Type your text here..."
+    )
+
+    if st.button("Extract Requirements"):
+        if st.session_state.user_input.strip():
+            st.session_state.prediction = send_request_and_display_result(st.session_state.user_input)
+        else:
+            st.warning("Please enter some text to analyze.")
+
+    st.text_area("Extracted Requirements:", value=st.session_state.prediction, height=200, disabled=True)
+
+def send_request_and_display_result(user_input):
+    with st.spinner("Extracting requirements..."):
+        try:
+            response = requests.post(FASTAPI_URL, json={"text": user_input})
 
             if response.status_code == 200:
-                result = response.json()
-                translated_text = result.get("predicted_digit")
-                st.success("Translation complete!")
-                st.text_area("Translated Text", translated_text, height=100)
+                return response.json().get("predicted_requirements", "No prediction returned.")
             else:
-                st.error(f"Error: {response.text}")
+                st.error(f"Error {response.status_code}: {response.json().get('detail', 'Unknown error')}.")
+                return ""
 
+        except requests.exceptions.RequestException as e:
+            st.error(f"Connection error: {e}")
+            return ""
+
+if __name__ == "__main__":
+    main()
