@@ -7,19 +7,6 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(device)
-
-# file_path = '/kaggle/input/longtaskdescription-en/long_task_descriptions_en.csv'
-file_path = 'jobs_data.csv'
-data = pd.read_csv(file_path)
-data = [(row['job_description'], row['keywords']) for _, row in data.iterrows()]
-
-train_data, test_data = train_test_split(data, test_size=0.2, random_state=42)
-
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-vocab_size = tokenizer.vocab_size  # Use tokenizer's vocabulary size for embedding layer
-
 
 class RequirementsDataset(Dataset):
     def __init__(self, data, tokenizer, max_length=128):
@@ -50,7 +37,7 @@ class TransformerRequirementsExtractor(nn.Module):
         super(TransformerRequirementsExtractor, self).__init__()
 
         self.embedding = nn.Embedding(vocab_size, embed_size)
-        self.position_embedding = nn.Embedding(512, embed_size)  # Position embeddings for sequence length up to 512
+        self.position_embedding = nn.Embedding(512, embed_size)
         self.embedding_dim = embed_size
 
         self.encoder_layer = nn.TransformerEncoderLayer(d_model=self.embedding_dim, nhead=num_heads,
@@ -78,84 +65,103 @@ class TransformerRequirementsExtractor(nn.Module):
         return self.fc_out(output)
 
 
-def train(model, dataloader, criterion, optimizer, epochs=3):
-    model.train()
-    for epoch in range(epochs):
-        total_loss = 0
-        with tqdm(dataloader, desc=f"Training Epoch {epoch + 1}") as pbar:
-            for batch in pbar:
-                src, trg = batch["input_ids"].to(device), batch["labels"].to(device)
-                src_mask, trg_mask = batch["attention_mask"].to(device), batch["attention_mask"].to(device)
+class RequirementExtractorNN:
+    def __init__(self, embed_size=512, num_heads=8, num_encoder_layers=4, num_decoder_layers=4, dim_feedforward=1024,
+                 dropout=0.1):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.vocab_size = self.tokenizer.vocab_size
 
-                trg_input = trg[:, :-1]
-                trg_mask = trg_mask[:, :-1]
-                trg_target = trg[:, 1:]
+        self.model = TransformerRequirementsExtractor(
+            vocab_size=self.vocab_size,
+            embed_size=embed_size,
+            num_heads=num_heads,
+            num_encoder_layers=num_encoder_layers,
+            num_decoder_layers=num_decoder_layers,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout
+        ).to(self.device)
 
-                src_mask = src_mask.bool()
-                trg_mask = trg_mask.bool()
+        self.criterion = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=0.0001)
 
-                optimizer.zero_grad()
-                output = model(src, trg_input, src_mask=src_mask, trg_mask=trg_mask)
-                output = output.reshape(-1, output.shape[-1])
-                trg_target = trg_target.reshape(-1)
+    def train_from_dataset(self, file_path="long_task_descriptions_en.csv", batch_size=8, epochs=3):
+        data = pd.read_csv(file_path)
+        data = [(row['fulltext'], row['essence']) for _, row in data.iterrows()]
 
-                loss = criterion(output, trg_target)
-                loss.backward()
-                optimizer.step()
+        train_data, _ = train_test_split(data, test_size=0.2, random_state=42)
+        train_dataset = RequirementsDataset(train_data, self.tokenizer)
+        train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-                total_loss += loss.item()
-                avg_loss = total_loss / (pbar.n + 1)
-                pbar.set_postfix({"Loss": avg_loss})
-        print(f"Epoch {epoch + 1}, Loss: {total_loss / len(dataloader)}")
+        self.model.train()
+        for epoch in range(epochs):
+            total_loss = 0
+            with tqdm(train_dataloader, desc=f"Training Epoch {epoch + 1}") as pbar:
+                for batch in pbar:
+                    src, trg = batch["input_ids"].to(self.device), batch["labels"].to(self.device)
+                    src_mask, trg_mask = batch["attention_mask"].to(self.device), batch["attention_mask"].to(self.device)
 
+                    trg_input = trg[:, :-1]
+                    trg_mask = trg_mask[:, :-1]
+                    trg_target = trg[:, 1:]
 
-def predict(model, tokenizer, text, max_length=50, num_beams=4):
-    model.eval()
-    src = tokenizer(text, return_tensors="pt", padding="max_length", truncation=True, max_length=128)["input_ids"].to(
-        device)
-    src_mask = tokenizer(text, return_tensors="pt", padding="max_length", truncation=True, max_length=128)[
-        "attention_mask"].to(device).bool()
+                    src_mask = src_mask.bool()
+                    trg_mask = trg_mask.bool()
 
-    trg = torch.tensor([[tokenizer.cls_token_id]], dtype=torch.long).to(device)
-    beam_candidates = [(trg, 0)]
+                    self.optimizer.zero_grad()
+                    output = self.model(src, trg_input, src_mask=src_mask, trg_mask=trg_mask)
+                    output = output.reshape(-1, output.shape[-1])
+                    trg_target = trg_target.reshape(-1)
 
-    for _ in range(max_length):
-        new_candidates = []
-        for candidate, score in beam_candidates:
-            output = model(src, candidate, src_mask=src_mask)
-            next_token_logits = output[:, -1, :].softmax(dim=-1)
-            topk_tokens = next_token_logits.topk(num_beams)
+                    loss = self.criterion(output, trg_target)
+                    loss.backward()
+                    self.optimizer.step()
 
-            for k in range(num_beams):
-                next_token = topk_tokens.indices[0, k].unsqueeze(0).unsqueeze(0)
-                new_candidate = torch.cat([candidate, next_token], dim=1)
-                new_score = score + topk_tokens.values[0, k].item()
+                    total_loss += loss.item()
+                    avg_loss = total_loss / (pbar.n + 1)
+                    pbar.set_postfix({"Loss": avg_loss})
+            print(f"Epoch {epoch + 1}, Loss: {total_loss / len(train_dataloader)}")
 
-                if next_token.item() == tokenizer.sep_token_id:
-                    return tokenizer.decode(new_candidate.squeeze(0).tolist(), skip_special_tokens=True)
+        self.save_model()
 
-                new_candidates.append((new_candidate, new_score))
+    def save_model(self, path="./best_model.pt"):
+        torch.save(self.model.state_dict(), path)
 
-        beam_candidates = sorted(new_candidates, key=lambda x: x[1], reverse=True)[:num_beams]
+    def load_model(self, path="./best_model.pt"):
+        self.model.load_state_dict(torch.load(path, weights_only=True))
+        self.model.eval()
 
-    best_sequence = beam_candidates[0][0]
-    return tokenizer.decode(best_sequence.squeeze(0).tolist(), skip_special_tokens=True)
+    def predict(self, text, max_length=50, num_beams=4):
+        if not self.model:
+            raise ValueError("Model is not loaded. Please load a trained model first.")
 
+        self.model.eval()
+        src = self.tokenizer(text, return_tensors="pt", padding="max_length", truncation=True, max_length=128)[
+            "input_ids"].to(self.device)
+        src_mask = self.tokenizer(text, return_tensors="pt", padding="max_length", truncation=True, max_length=128)[
+            "attention_mask"].to(self.device).bool()
 
-embed_size = 512
-num_heads = 8
-num_encoder_layers = 4
-num_decoder_layers = 4
-dim_feedforward = 1024
+        trg = torch.tensor([[self.tokenizer.cls_token_id]], dtype=torch.long).to(self.device)
+        beam_candidates = [(trg, 0)]
 
-model = TransformerRequirementsExtractor(vocab_size, embed_size, num_heads, num_encoder_layers, num_decoder_layers,
-                                         dim_feedforward).to(device)
-criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
-optimizer = optim.Adam(model.parameters(), lr=0.0001)
+        for _ in range(max_length):
+            new_candidates = []
+            for candidate, score in beam_candidates:
+                output = self.model(src, candidate, src_mask=src_mask)
+                next_token_logits = output[:, -1, :].softmax(dim=-1)
+                topk_tokens = next_token_logits.topk(num_beams)
 
-train_dataset = RequirementsDataset(train_data, tokenizer)
-train_dataloader = DataLoader(train_dataset, batch_size=8, shuffle=True)
-train(model, train_dataloader, criterion, optimizer)
+                for k in range(num_beams):
+                    next_token = topk_tokens.indices[0, k].unsqueeze(0).unsqueeze(0)
+                    new_candidate = torch.cat([candidate, next_token], dim=1)
+                    new_score = score + topk_tokens.values[0, k].item()
 
-sample_text = "To ensure effective operation within our team, we need a system that handles task assignments, tracks deadlines, and generates regular progress reports."
-print("Predicted Summary:", predict(model, tokenizer, sample_text))
+                    if next_token.item() == self.tokenizer.sep_token_id:
+                        return self.tokenizer.decode(new_candidate.squeeze(0).tolist(), skip_special_tokens=True)
+
+                    new_candidates.append((new_candidate, new_score))
+
+            beam_candidates = sorted(new_candidates, key=lambda x: x[1], reverse=True)[:num_beams]
+
+        best_sequence = beam_candidates[0][0]
+        return self.tokenizer.decode(best_sequence.squeeze(0).tolist(), skip_special_tokens=True)
